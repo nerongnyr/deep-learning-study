@@ -1,0 +1,18 @@
+# 이미지 및 동영상 파일 전체 제외
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.mp4
+*.avi
+*.mov
+
+# 폴더 단위 제외
+runs/
+**/captured_images/
+**/runs/
+
+# 시스템 및 캐시 파일
+.vscode/
+__pycache__/
+*.pt
