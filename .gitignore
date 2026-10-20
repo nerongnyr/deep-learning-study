@@ -16,3 +16,4 @@ runs/
 .vscode/
 __pycache__/
 *.pt
+.env
