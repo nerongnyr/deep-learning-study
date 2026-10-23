@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCTV 영상 분석</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #e8ebed;
+    --panel: #f6f7f8;
+    --ink: #14213a;
+    --muted: #5d6877;
+    --line: #c5ccd3;
+    --person: #ff5a1f;
+    --vehicle: #1f6bff;
+    --twowheel: #0a9d78;
+    --screen: #0d1118;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 15px/1.55 "IBM Plex Sans KR", "Malgun Gothic", sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -.01em; }
+  .file { color: var(--muted); }
+  .spacer { flex: 1; }
+  button, .btn {
+    font: 500 14px "IBM Plex Sans KR", sans-serif;
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+  button:hover, .btn:hover { border-color: var(--ink); }
+  button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  button:focus-visible, .btn:focus-within, input:focus-visible + span, .seek:focus-visible {
+    outline: 3px solid #2a7fff; outline-offset: 2px;
+  }
+
+  /* ---- start screen ---- */
+  .start {
+    display: grid; place-items: center; text-align: center;
+    min-height: 420px; padding: 32px;
+    border: 2px dashed var(--line); border-radius: 6px; background: var(--panel);
+  }
+  .start.over { border-color: var(--ink); background: #fff; }
+  .start h2 { margin: 0 0 8px; font-size: 22px; }
+  .start p { margin: 0 0 20px; color: var(--muted); max-width: 44ch; }
+  .start .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .err { color: #b3261e; margin-top: 16px; font-weight: 500; }
+
+  /* ---- progress ---- */
+  .working { display: none; min-height: 420px; place-items: center; text-align: center; background: var(--panel); border-radius: 6px; border: 1px solid var(--line); }
+  .bar { width: min(420px, 80vw); height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 14px auto 0; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--ink); transition: width .3s; }
+
+  /* ---- result ---- */
+  .result { display: none; }
+  .main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+  .stage { position: relative; background: var(--screen); border-radius: 6px; overflow: hidden; line-height: 0; }
+  .stage video, .stage canvas { width: 100%; height: auto; display: block; }
+  .stage canvas { position: absolute; inset: 0; height: 100%; pointer-events: none; }
+  .now {
+    position: absolute; left: 10px; bottom: 10px; line-height: 1.3;
+    background: #0d1118cc; color: #fff; padding: 4px 8px; border-radius: 3px; font-size: 13px;
+  }
+  .controls { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .controls label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; color: var(--muted); }
+
+  .side { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 16px; }
+  .grp { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .grp:last-child { border-bottom: 0; }
+  .grp-head { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+  .sw { width: 12px; height: 12px; border-radius: 2px; }
+  .grp.off { opacity: .4; }
+  .grp-head button { margin-left: auto; padding: 3px 10px; font-size: 13px; }
+  .big { font-size: 40px; font-weight: 700; line-height: 1.1; margin: 6px 0 2px; }
+  .big small { font-size: 15px; font-weight: 400; color: var(--muted); margin-left: 4px; }
+  .peak { color: var(--muted); font-size: 14px; }
+  .seek { background: none; border: 0; padding: 0; color: var(--ink); text-decoration: underline; cursor: pointer; font-size: 14px; }
+
+  .timeline { margin-top: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 16px 8px; }
+  .timeline h2 { margin: 0 0 8px; font-size: 15px; }
+  .tl { position: relative; cursor: pointer; }
+  .tl canvas { width: 100%; height: 150px; display: block; }
+  .tl .head { position: absolute; top: 0; bottom: 18px; width: 2px; background: var(--ink); pointer-events: none; }
+
+  @media (max-width: 860px) { .main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>CCTV 영상 분석</h1>
+    <span class="file" id="fname"></span>
+    <span class="spacer"></span>
+    <label class="btn" id="again" hidden><input type="file" accept="video/*" hidden> 다른 영상 분석하기</label>
+  </header>
+
+  <section class="start" id="start">
+    <div>
+      <h2>CCTV 영상을 올려 주세요</h2>
+      <p>영상 속 사람과 차량을 찾아 표시하고, 시간대별로 몇 명·몇 대가 있었는지 보여 줍니다. mp4, webm, mov 파일을 끌어다 놓거나 선택하세요.</p>
+      <div class="row">
+        <label class="btn primary"><input type="file" id="pick" accept="video/*" hidden> 영상 파일 선택</label>
+        <button id="sample">샘플 영상으로 분석하기</button>
+      </div>
+      <div class="err" id="err" role="alert"></div>
+    </div>
+  </section>
+
+  <section class="working" id="working">
+    <div>
+      <strong id="wmsg">영상을 분석하는 중입니다</strong>
+      <div class="bar"><i id="wbar"></i></div>
+      <div class="file" id="wpct" style="margin-top:8px">0%</div>
+    </div>
+  </section>
+
+  <section class="result" id="result">
+    <div class="main">
+      <div>
+        <div class="stage">
+          <video id="vid" playsinline controls preload="auto"></video>
+          <canvas id="ov"></canvas>
+          <div class="now" id="now"></div>
+        </div>
+        <div class="controls">
+          <label><input type="checkbox" id="blur"> 사람 얼굴 가리기</label>
+        </div>
+      </div>
+      <aside class="side" id="side" aria-label="분석 요약"></aside>
+    </div>
+    <div class="timeline">
+      <h2>시간대별 감지 (눌러서 이동)</h2>
+      <div class="tl" id="tl"><canvas id="tlc"></canvas><div class="head" id="head"></div></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var G = [
+    { name: '사람', unit: '명', color: '#ff5a1f' },
+    { name: '차량', unit: '대', color: '#1f6bff' },
+    { name: '이륜차', unit: '대', color: '#0a9d78' }
+  ];
+  var $ = function (id) { return document.getElementById(id); };
+  var vid = $('vid'), ov = $('ov'), ctx = ov.getContext('2d');
+  var tlc = $('tlc'), tctx = tlc.getContext('2d');
+  var data = null, hidden = [false, false, false], stats = [];
+
+  function show(which) {
+    ['start', 'working', 'result'].forEach(function (id) {
+      $(id).style.display = id === which ? (id === 'start' ? 'grid' : id === 'working' ? 'grid' : 'block') : 'none';
+    });
+    $('again').hidden = which === 'start';
+  }
+  function fail(msg) { show('start'); $('err').textContent = msg; }
+  function mmss(s) { s = Math.round(s); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+
+  function begin(promise, name) {
+    $('err').textContent = '';
+    $('fname').textContent = name;
+    $('wpct').textContent = '0%'; $('wbar').style.width = '0';
+    show('working');
+    promise.then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error); return j; }); })
+      .then(function (j) { poll(j.job); })
+      .catch(function (e) { fail(e.message || '서버에 연결할 수 없습니다. app.py가 실행 중인지 확인하세요'); });
+  }
+  function poll(job) {
+    fetch('/api/jobs/' + job).then(function (r) { return r.json(); }).then(function (j) {
+      if (j.state === 'error') return fail('분석에 실패했습니다: ' + j.error);
+      var p = Math.round((j.progress || 0) * 100);
+      $('wbar').style.width = p + '%'; $('wpct').textContent = p + '%';
+      if (j.state === 'done') return load(job, j.result);
+      setTimeout(function () { poll(job); }, 600);
+    }).catch(function () { fail('서버와 연결이 끊겼습니다. app.py를 다시 실행하세요'); });
+  }
+
+  function load(job, result) {
+    data = result;
+    hidden = [false, false, false];
+    summarize();
+    vid.src = '/api/jobs/' + job + '/video';
+    show('result');
+    vid.onloadedmetadata = function () { fit(); draw(); };
+    fit(); drawTimeline(); draw();
+  }
+
+  function summarize() {
+    stats = G.map(function () { return { ids: {}, unique: 0, max: 0, at: 0 }; });
+    data.frames.forEach(function (f) {
+      var c = [0, 0, 0];
+      f.d.forEach(function (b) {
+        c[b[0]]++;
+        if (b[1] >= 0) stats[b[0]].ids[b[1]] = 1;
+      });
+      c.forEach(function (n, g) { if (n > stats[g].max) { stats[g].max = n; stats[g].at = f.t; } });
+    });
+    var html = '';
+    G.forEach(function (g, i) {
+      var s = stats[i]; s.unique = Object.keys(s.ids).length;
+      html += '<div class="grp" id="g' + i + '"><div class="grp-head"><span class="sw" style="background:' + g.color + '"></span>' + g.name +
+        '<button data-g="' + i + '" aria-pressed="true">표시 중</button></div>' +
+        '<div class="big">' + s.unique + '<small>' + g.unit + ' 지나감</small></div>' +
+        '<div class="peak">' + (s.max ? '가장 붐빈 때 ' + s.max + g.unit + ' · <button class="seek" data-t="' + s.at + '">' + mmss(s.at) + '로 이동</button>' : '감지되지 않음') + '</div></div>';
+    });
+    $('side').innerHTML = html;
+  }
+  $('side').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.t) { vid.currentTime = +b.dataset.t; draw(); }
+    if (b.dataset.g) {
+      var i = +b.dataset.g; hidden[i] = !hidden[i];
+      b.textContent = hidden[i] ? '숨김' : '표시 중'; b.setAttribute('aria-pressed', !hidden[i]);
+      $('g' + i).classList.toggle('off', hidden[i]);
+      drawTimeline(); draw();
+    }
+  });
+
+  /* --- overlay --- */
+  function frameAt(t) {
+    var f = data.frames, lo = 0, hi = f.length - 1;
+    while (lo < hi) { var m = (lo + hi + 1) >> 1; if (f[m].t <= t) lo = m; else hi = m - 1; }
+    return f[lo];
+  }
+  function fit() {
+    var w = vid.clientWidth || 640, h = vid.clientHeight || 360, d = window.devicePixelRatio || 1;
+    ov.width = w * d; ov.height = h * d;
+  }
+  function draw() {
+    if (!data) return;
+    var W = ov.width, H = ov.height, d = window.devicePixelRatio || 1;
+    ctx.clearRect(0, 0, W, H);
+    var f = frameAt(vid.currentTime), n = [0, 0, 0];
+    ctx.lineWidth = 2 * d; ctx.font = (12 * d) + 'px "IBM Plex Sans KR", sans-serif'; ctx.textBaseline = 'top';
+    f.d.forEach(function (b) {
+      if (hidden[b[0]]) return;
+      n[b[0]]++;
+      var x = b[2] * W, y = b[3] * H, w = (b[4] - b[2]) * W, h = (b[5] - b[3]) * H;
+      if (b[0] === 0 && $('blur').checked) {
+        // 사람의 윗부분(머리·얼굴)만 흐리게 가린다
+        var hh = Math.min(h * 0.28, h);
+        ctx.save(); ctx.filter = 'blur(' + (8 * d) + 'px)';
+        ctx.beginPath(); ctx.rect(x, y, w, hh); ctx.clip();
+        ctx.drawImage(vid, x * vid.videoWidth / W, y * vid.videoHeight / H, w * vid.videoWidth / W, hh * vid.videoHeight / H, x, y, w, hh);
+        ctx.restore();
+      }
+      ctx.strokeStyle = G[b[0]].color; ctx.strokeRect(x, y, w, h);
+      if (b[1] >= 0) {
+        var label = '#' + b[1], tw = ctx.measureText(label).width + 8 * d;
+        ctx.fillStyle = G[b[0]].color; ctx.fillRect(x, y - 16 * d < 0 ? y : y - 16 * d, tw, 16 * d);
+        ctx.fillStyle = '#fff'; ctx.fillText(label, x + 4 * d, (y - 16 * d < 0 ? y : y - 16 * d) + 2 * d);
+      }
+    });
+    $('now').textContent = mmss(vid.currentTime) + '  ' + G.map(function (g, i) { return hidden[i] ? '' : g.name + ' ' + n[i]; }).filter(Boolean).join('  ');
+    $('head').style.left = (vid.currentTime / data.duration * 100) + '%';
+  }
+  function loop() { draw(); requestAnimationFrame(loop); }
+  requestAnimationFrame(loop);
+  $('blur').addEventListener('change', draw);
+
+  /* --- timeline --- */
+  function drawTimeline() {
+    if (!data) return;
+    var d = window.devicePixelRatio || 1, W = tlc.clientWidth * d, H = tlc.clientHeight * d;
+    tlc.width = W; tlc.height = H;
+    var axis = 18 * d, rowH = (H - axis) / 3, bins = Math.max(40, Math.min(240, Math.floor(W / (5 * d))));
+    var cols = G.map(function () { return new Array(bins).fill(0); });
+    data.frames.forEach(function (f) {
+      var k = Math.min(bins - 1, Math.floor(f.t / data.duration * bins)), c = [0, 0, 0];
+      f.d.forEach(function (b) { c[b[0]]++; });
+      c.forEach(function (n, g) { if (n > cols[g][k]) cols[g][k] = n; });
+    });
+    tctx.fillStyle = '#c5ccd366';
+    G.forEach(function (g, i) {
+      var y0 = i * rowH, max = Math.max(1, stats[i].max);
+      tctx.fillRect(0, y0 + rowH - 1, W, 1);
+      if (hidden[i]) return;
+      tctx.fillStyle = g.color;
+      cols[i].forEach(function (n, k) {
+        var h = n / max * (rowH - 6 * d), bw = W / bins;
+        tctx.fillRect(k * bw, y0 + rowH - 1 - h, Math.max(1, bw - 1), h);
+      });
+      tctx.fillStyle = '#c5ccd366';
+    });
+    tctx.fillStyle = '#14213a'; tctx.font = (11 * d) + 'px "IBM Plex Sans KR", sans-serif'; tctx.textBaseline = 'top';
+    G.forEach(function (g, i) { tctx.fillText(g.name, 4 * d, i * rowH + 2 * d); });
+    var step = data.duration > 120 ? 30 : data.duration > 40 ? 10 : 2;
+    for (var s = 0; s <= data.duration; s += step) {
+      tctx.textAlign = s === 0 ? 'left' : 'center';
+      tctx.fillText(mmss(s), s / data.duration * W, H - 14 * d);
+    }
+    tctx.textAlign = 'left';
+  }
+  $('tl').addEventListener('click', function (e) {
+    var r = this.getBoundingClientRect();
+    vid.currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * data.duration;
+    draw();
+  });
+  window.addEventListener('resize', function () { fit(); drawTimeline(); });
+
+  /* --- inputs --- */
+  function upload(file) {
+    if (!file) return;
+    var fd = new FormData(); fd.append('video', file);
+    begin(fetch('/api/analyze', { method: 'POST', body: fd }), file.name);
+  }
+  $('pick').addEventListener('change', function () { upload(this.files[0]); });
+  $('again').querySelector('input').addEventListener('change', function () { upload(this.files[0]); });
+  $('sample').addEventListener('click', function () { begin(fetch('/api/sample', { method: 'POST' }), '샘플 영상'); });
+  ['dragover', 'dragenter'].forEach(function (ev) { $('start').addEventListener(ev, function (e) { e.preventDefault(); this.classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function (ev) { $('start').addEventListener(ev, function () { this.classList.remove('over'); }); });
+  $('start').addEventListener('drop', function (e) { e.preventDefault(); upload(e.dataTransfer.files[0]); });
+
+  show('start');
+})();
+</script>
+</body>
+</html>
