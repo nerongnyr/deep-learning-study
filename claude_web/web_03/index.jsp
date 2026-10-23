@@ -1,0 +1,259 @@
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>계산기</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    padding: 16px;
+    background: linear-gradient(135deg, #fde2e4, #e2ece9 50%, #dfe7fd);
+    font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+  }
+  .calculator, .history {
+    background: #fffaf7;
+    border-radius: 24px;
+    box-shadow: 0 12px 36px rgba(160, 140, 190, 0.28);
+  }
+  .calculator { width: 320px; padding: 20px; }
+  .display {
+    min-height: 100px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    background: #f3eefa;
+    border-radius: 16px;
+    text-align: right;
+    color: #5b5470;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: hidden;
+  }
+  .expression { font-size: 16px; color: #a39bb8; min-height: 22px; word-break: break-all; }
+  .result { font-size: 40px; font-weight: 600; word-break: break-all; }
+  .keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  button {
+    height: 60px;
+    border: none;
+    border-radius: 16px;
+    font-size: 22px;
+    color: #5b5470;
+    background: #e8e4f3;
+    cursor: pointer;
+    transition: filter 0.1s, transform 0.05s;
+  }
+  button:hover { filter: brightness(1.04) saturate(1.1); }
+  button:active { transform: scale(0.95); }
+  button.op { background: #ffd6c0; color: #8a5a44; }
+  button.fn { background: #cfe3f5; color: #4a6a85; }
+  button.eq { background: #bfe8cf; color: #3f6b52; }
+  button.wide { grid-column: span 2; }
+  .history { width: 240px; padding: 16px; max-height: 480px; overflow-y: auto; color: #5b5470; }
+  .history h2 { margin: 0 0 8px; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
+  .history h2 button { height: auto; padding: 4px 8px; font-size: 12px; }
+  .history ul { list-style: none; margin: 0; padding: 0; }
+  .history li { padding: 8px 0; border-bottom: 1px solid #ece6f5; font-size: 14px; color: #a39bb8; text-align: right; cursor: pointer; }
+  .history li b { display: block; font-size: 18px; color: #5b5470; font-weight: 600; }
+  .history .empty { color: #b9b2c9; text-align: center; cursor: default; }
+</style>
+</head>
+<body>
+<div class="calculator">
+  <div class="display">
+    <div class="expression" id="expr"></div>
+    <div class="result" id="result">0</div>
+  </div>
+  <div class="keys" id="keys">
+    <button class="fn" data-k="C">AC</button>
+    <button class="fn" data-k="BS">⌫</button>
+    <button class="fn" data-k="%">%</button>
+    <button class="op" data-k="/">÷</button>
+
+    <button data-k="7">7</button>
+    <button data-k="8">8</button>
+    <button data-k="9">9</button>
+    <button class="op" data-k="*">×</button>
+
+    <button data-k="4">4</button>
+    <button data-k="5">5</button>
+    <button data-k="6">6</button>
+    <button class="op" data-k="-">−</button>
+
+    <button data-k="1">1</button>
+    <button data-k="2">2</button>
+    <button data-k="3">3</button>
+    <button class="op" data-k="+">+</button>
+
+    <button class="wide" data-k="0">0</button>
+    <button data-k=".">.</button>
+    <button class="eq" data-k="=">=</button>
+  </div>
+</div>
+<div class="history">
+  <h2>기록 <button class="fn" id="clearHist">지우기</button></h2>
+  <ul id="hist"><li class="empty">기록이 없습니다</li></ul>
+</div>
+
+<script>
+  const exprEl = document.getElementById("expr");
+  const resEl = document.getElementById("result");
+  const histEl = document.getElementById("hist");
+  const SYMBOL = { "/": "÷", "*": "×", "-": "−", "+": "+" };
+  const OPS = /[+\-*/]/;
+
+  let expr = "";            // 입력 중인 수식 (예: "12+3*4")
+  let justEvaluated = false;
+  let history = [];
+
+  // eval 없이 계산: 토큰화 후 연산자 우선순위(shunting-yard)로 평가
+  function evaluate(src) {
+    const tokens = src.match(/\d*\.?\d+|[+\-*/%]/g);
+    if (!tokens || tokens.join("") !== src) throw new Error("bad");
+    const prec = { "+": 1, "-": 1, "*": 2, "/": 2, "u": 3 };
+    const out = [], ops = [];
+    let prev = "o";
+    for (const t of tokens) {
+      if (/\d/.test(t)) { out.push(parseFloat(t)); prev = "n"; continue; }
+      if (t === "%") {
+        if (prev !== "n") throw new Error("bad");
+        out.push(out.pop() / 100);
+        continue;
+      }
+      if (prev !== "n") { // 맨 앞 또는 연산자 뒤의 '-'는 음수 부호
+        if (t !== "-") throw new Error("bad");
+        out.push(0);
+        ops.push("u");
+        prev = "o";
+        continue;
+      }
+      while (ops.length && prec[ops[ops.length - 1]] >= prec[t]) out.push(ops.pop());
+      ops.push(t);
+      prev = "o";
+    }
+    if (prev !== "n") throw new Error("bad");
+    while (ops.length) out.push(ops.pop());
+    const st = [];
+    for (const t of out) {
+      if (typeof t === "number") { st.push(t); continue; }
+      const b = st.pop(), a = st.pop();
+      st.push(t === "+" ? a + b : t === "-" || t === "u" ? a - b : t === "*" ? a * b : a / b);
+    }
+    if (!isFinite(st[0])) throw new Error("div0");
+    return parseFloat(st[0].toPrecision(12));
+  }
+
+  const pretty = (s) => s.replace(/[+\-*/]/g, (c) => " " + SYMBOL[c] + " ");
+  const trimmed = () => expr.replace(/[+\-*/]$/, "");
+
+  function render() {
+    exprEl.textContent = pretty(expr);
+    if (!expr) { resEl.textContent = "0"; return; }
+    try { resEl.textContent = String(evaluate(trimmed())); }
+    catch { /* 입력 중이라 계산 불가: 이전 결과 유지 */ }
+  }
+
+  function press(k) {
+    const last = expr.slice(-1);
+    if (/\d/.test(k) || k === ".") {
+      if (justEvaluated) { expr = ""; justEvaluated = false; }
+      if (k === ".") {
+        const cur = expr.split(/[+\-*/%]/).pop();
+        if (cur.includes(".")) return;
+        if (cur === "") expr += "0";
+      }
+      expr += k;
+    } else if (k in SYMBOL) {
+      justEvaluated = false;
+      if (!expr) { if (k !== "-") return; }
+      else if (OPS.test(last)) {
+        // 연산자 뒤 '-'는 음수 부호로 허용, 그 외에는 연산자 교체
+        if (k === "-" && last !== "-" && last !== "+") { expr += k; render(); return; }
+        expr = expr.slice(0, -1);
+        if (!expr && k !== "-") { render(); return; }
+      }
+      expr += k;
+    } else if (k === "%") {
+      if (!/\d/.test(last)) return;
+      justEvaluated = false;
+      expr += "%";
+    } else if (k === "BS") {
+      if (justEvaluated) expr = "";
+      justEvaluated = false;
+      expr = expr.slice(0, -1);
+    } else if (k === "C") {
+      expr = ""; justEvaluated = false;
+    } else if (k === "=") {
+      if (!expr) return;
+      const src = trimmed();
+      try {
+        const r = evaluate(src);
+        addHistory(src, r);
+        exprEl.textContent = pretty(src) + " =";
+        resEl.textContent = String(r);
+        expr = String(r);
+        justEvaluated = true;
+      } catch (e) {
+        exprEl.textContent = pretty(expr);
+        resEl.textContent = e.message === "div0" ? "0으로 나눌 수 없습니다" : "오류";
+        expr = "";
+      }
+      return;
+    }
+    render();
+  }
+
+  function addHistory(e, r) {
+    history.unshift({ e, r });
+    history = history.slice(0, 20);
+    renderHistory();
+  }
+
+  function renderHistory() {
+    histEl.innerHTML = "";
+    if (!history.length) {
+      histEl.innerHTML = '<li class="empty">기록이 없습니다</li>';
+      return;
+    }
+    for (const h of history) {
+      const li = document.createElement("li");
+      li.append(pretty(h.e) + " =");
+      const b = document.createElement("b");
+      b.textContent = h.r;
+      li.append(b);
+      li.title = "클릭하면 결과를 불러옵니다";
+      li.onclick = () => {
+        expr = String(h.r); justEvaluated = true;
+        exprEl.textContent = "";
+        resEl.textContent = String(h.r);
+      };
+      histEl.append(li);
+    }
+  }
+
+  document.getElementById("keys").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (b) press(b.dataset.k);
+  });
+  document.getElementById("clearHist").onclick = () => { history = []; renderHistory(); };
+
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/^[0-9.+\-*/%]$/.test(e.key)) press(e.key);
+    else if (e.key === "Enter" || e.key === "=") { e.preventDefault(); press("="); }
+    else if (e.key === "Backspace") press("BS");
+    else if (e.key === "Escape" || e.key === "Delete") press("C");
+  });
+
+  render();
+</script>
+</body>
+</html>

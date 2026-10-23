@@ -1,0 +1,196 @@
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>계산기</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #fde2e4, #e2ece9 50%, #dfe7fd);
+    font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+  }
+  .calculator {
+    width: 320px;
+    padding: 20px;
+    background: #fffaf7;
+    border-radius: 24px;
+    box-shadow: 0 12px 36px rgba(160, 140, 190, 0.28);
+  }
+  .display {
+    min-height: 100px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    background: #f3eefa;
+    border-radius: 16px;
+    text-align: right;
+    color: #5b5470;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: hidden;
+  }
+  .expression { font-size: 16px; color: #a39bb8; min-height: 22px; word-break: break-all; }
+  .result { font-size: 40px; font-weight: 600; word-break: break-all; }
+  .keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  button {
+    height: 60px;
+    border: none;
+    border-radius: 16px;
+    font-size: 22px;
+    color: #5b5470;
+    background: #e8e4f3;
+    cursor: pointer;
+    transition: filter 0.1s, transform 0.05s;
+  }
+  button:hover { filter: brightness(1.04) saturate(1.1); }
+  button:active { transform: scale(0.95); }
+  button.op { background: #ffd6c0; color: #8a5a44; }
+  button.fn { background: #cfe3f5; color: #4a6a85; }
+  button.eq { background: #bfe8cf; color: #3f6b52; }
+  button.wide { grid-column: span 2; }
+</style>
+</head>
+<body>
+<div class="calculator">
+  <div class="display">
+    <div class="expression" id="expression"></div>
+    <div class="result" id="result">0</div>
+  </div>
+  <div class="keys">
+    <button class="fn" data-action="clear">AC</button>
+    <button class="fn" data-action="back">⌫</button>
+    <button class="fn" data-action="percent">%</button>
+    <button class="op" data-op="/">÷</button>
+
+    <button data-num="7">7</button>
+    <button data-num="8">8</button>
+    <button data-num="9">9</button>
+    <button class="op" data-op="*">×</button>
+
+    <button data-num="4">4</button>
+    <button data-num="5">5</button>
+    <button data-num="6">6</button>
+    <button class="op" data-op="-">−</button>
+
+    <button data-num="1">1</button>
+    <button data-num="2">2</button>
+    <button data-num="3">3</button>
+    <button class="op" data-op="+">+</button>
+
+    <button class="wide" data-num="0">0</button>
+    <button data-num=".">.</button>
+    <button class="eq" data-action="equals">=</button>
+  </div>
+</div>
+
+<script>
+  const symbols = { "+": "+", "-": "−", "*": "×", "/": "÷" };
+  const exprEl = document.getElementById("expression");
+  const resultEl = document.getElementById("result");
+
+  let current = "0";   // 현재 입력 중인 숫자
+  let prev = null;     // 이전 숫자
+  let operator = null; // 선택된 연산자
+  let justEvaluated = false;
+
+  function compute(a, op, b) {
+    switch (op) {
+      case "+": return a + b;
+      case "-": return a - b;
+      case "*": return a * b;
+      case "/": return b === 0 ? NaN : a / b;
+    }
+  }
+
+  function format(n) {
+    if (!isFinite(n)) return "오류";
+    return String(parseFloat(n.toPrecision(12)));
+  }
+
+  function render() {
+    resultEl.textContent = current;
+    exprEl.textContent = prev !== null ? `${prev} ${symbols[operator] || ""}` : "";
+  }
+
+  function inputNumber(d) {
+    if (justEvaluated || current === "오류") { current = "0"; justEvaluated = false; }
+    if (d === ".") {
+      if (!current.includes(".")) current += ".";
+    } else {
+      current = current === "0" ? d : current + d;
+    }
+    render();
+  }
+
+  function inputOperator(op) {
+    if (current === "오류") return;
+    if (operator && !justEvaluated && prev !== null) {
+      current = format(compute(parseFloat(prev), operator, parseFloat(current)));
+    }
+    prev = current;
+    operator = op;
+    current = "0";
+    justEvaluated = false;
+    if (prev === "오류") { prev = null; operator = null; current = "오류"; }
+    render();
+  }
+
+  function equals() {
+    if (operator === null || prev === null) return;
+    const expr = `${prev} ${symbols[operator]} ${current} =`;
+    current = format(compute(parseFloat(prev), operator, parseFloat(current)));
+    prev = null;
+    operator = null;
+    justEvaluated = true;
+    render();
+    exprEl.textContent = expr;
+  }
+
+  function clearAll() {
+    current = "0"; prev = null; operator = null; justEvaluated = false;
+    render();
+  }
+
+  function back() {
+    if (justEvaluated || current === "오류") { clearAll(); return; }
+    current = current.length > 1 ? current.slice(0, -1) : "0";
+    render();
+  }
+
+  function percent() {
+    if (current === "오류") return;
+    current = format(parseFloat(current) / 100);
+    render();
+  }
+
+  document.querySelector(".keys").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.num !== undefined) inputNumber(b.dataset.num);
+    else if (b.dataset.op) inputOperator(b.dataset.op);
+    else if (b.dataset.action === "equals") equals();
+    else if (b.dataset.action === "clear") clearAll();
+    else if (b.dataset.action === "back") back();
+    else if (b.dataset.action === "percent") percent();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (/^[0-9.]$/.test(e.key)) inputNumber(e.key);
+    else if ("+-*/".includes(e.key)) inputOperator(e.key);
+    else if (e.key === "Enter" || e.key === "=") { e.preventDefault(); equals(); }
+    else if (e.key === "Backspace") back();
+    else if (e.key === "Escape") clearAll();
+    else if (e.key === "%") percent();
+  });
+
+  render();
+</script>
+</body>
+</html>

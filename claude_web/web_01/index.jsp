@@ -1,0 +1,242 @@
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>계산기</title>
+<style>
+  :root {
+    --bg1: #fde2e4; --bg2: #dfe7fd;
+    --calc: #fffaf7; --display: #f3eefa;
+    --text: #5b5470; --sub: #a39bb8;
+    --key: #e8e4f3; --fn: #cfe3f5;
+    --shadow: rgba(160, 140, 190, .28);
+  }
+  :root[data-theme="light"] {
+    --bg1: #d8f3e6; --bg2: #fff1d6;
+    --calc: #fffdf8; --display: #eef8f1;
+    --text: #4f6358; --sub: #98aa9f;
+    --key: #e1f0e8; --fn: #fde3cf;
+    --shadow: rgba(120, 160, 140, .28);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--bg1), var(--bg2));
+    font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+  }
+  .calc {
+    width: 320px;
+    padding: 20px;
+    background: var(--calc);
+    border-radius: 24px;
+    box-shadow: 0 12px 36px var(--shadow);
+    transition: background .2s;
+  }
+  .top { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+  .theme {
+    width: 40px; height: 40px;
+    font-size: 18px;
+    border-radius: 50%;
+    background: var(--key);
+  }
+  .display {
+    height: 100px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    background: var(--display);
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: flex-end;
+    overflow: hidden;
+  }
+  .history { color: var(--sub); font-size: 14px; min-height: 20px; }
+  .current { color: var(--text); font-size: 40px; font-weight: 600; word-break: break-all; text-align: right; }
+  .keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  button {
+    height: 60px;
+    border: none;
+    border-radius: 16px;
+    font-size: 22px;
+    color: var(--text);
+    background: var(--key);
+    cursor: pointer;
+    transition: transform .08s, filter .15s;
+  }
+  button:hover { filter: brightness(1.04) saturate(1.1); }
+  button:active { transform: scale(.94); }
+  button.fn { background: var(--fn); }
+  button.op { background: #ffd6c0; color: #8a5a44; }
+  button.eq { background: #bfe8cf; color: #3f6b52; }
+  button.zero { grid-column: span 2; }
+</style>
+</head>
+<body>
+<div class="calc">
+  <div class="top">
+    <button class="theme" id="theme" aria-label="밝기 모드 전환">🌙</button>
+  </div>
+  <div class="display">
+    <div class="history" id="history"></div>
+    <div class="current" id="current">0</div>
+  </div>
+  <div class="keys">
+    <button class="fn" data-act="clear">AC</button>
+    <button class="fn" data-act="sign">±</button>
+    <button class="fn" data-act="percent">%</button>
+    <button class="op" data-op="÷">÷</button>
+
+    <button data-num="7">7</button>
+    <button data-num="8">8</button>
+    <button data-num="9">9</button>
+    <button class="op" data-op="×">×</button>
+
+    <button data-num="4">4</button>
+    <button data-num="5">5</button>
+    <button data-num="6">6</button>
+    <button class="op" data-op="−">−</button>
+
+    <button data-num="1">1</button>
+    <button data-num="2">2</button>
+    <button data-num="3">3</button>
+    <button class="op" data-op="+">+</button>
+
+    <button class="zero" data-num="0">0</button>
+    <button data-act="dot">.</button>
+    <button class="eq" data-act="equals">=</button>
+  </div>
+</div>
+
+<script>
+  const root = document.documentElement;
+  const themeBtn = document.getElementById("theme");
+
+  const applyTheme = (t) => {
+    root.dataset.theme = t;
+    themeBtn.textContent = t === "light" ? "🌙" : "☀️";
+  };
+  let saved = null;
+  try { saved = localStorage.getItem("theme"); } catch (_) {}
+  applyTheme(saved || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"));
+  themeBtn.addEventListener("click", () => {
+    const next = root.dataset.theme === "light" ? "dark" : "light";
+    applyTheme(next);
+    try { localStorage.setItem("theme", next); } catch (_) {}
+  });
+
+  const currentEl = document.getElementById("current");
+  const historyEl = document.getElementById("history");
+
+  let current = "0";      // 현재 입력 중인 값
+  let prev = null;        // 이전 값
+  let op = null;          // 선택된 연산자
+  let fresh = false;      // 다음 숫자 입력 시 화면을 새로 시작할지
+
+  const compute = (a, b, o) => {
+    switch (o) {
+      case "+": return a + b;
+      case "−": return a - b;
+      case "×": return a * b;
+      case "÷": return b === 0 ? NaN : a / b;
+    }
+  };
+
+  const format = (n) => {
+    if (!isFinite(n)) return "오류";
+    return String(parseFloat(n.toPrecision(12)));
+  };
+
+  const render = () => {
+    currentEl.textContent = current;
+    currentEl.style.fontSize = current.length > 10 ? "28px" : "40px";
+  };
+
+  const inputNum = (d) => {
+    if (current === "오류" || fresh) { current = "0"; fresh = false; }
+    current = current === "0" ? d : current + d;
+    if (current.replace(/[-.]/g, "").length > 15) current = current.slice(0, -1);
+    render();
+  };
+
+  const inputDot = () => {
+    if (current === "오류" || fresh) { current = "0"; fresh = false; }
+    if (!current.includes(".")) current += ".";
+    render();
+  };
+
+  const setOp = (o) => {
+    if (current === "오류") return;
+    if (op && !fresh) equals(true);
+    prev = parseFloat(current);
+    op = o;
+    fresh = true;
+    historyEl.textContent = `${format(prev)} ${op}`;
+  };
+
+  const equals = (chain = false) => {
+    if (op === null || current === "오류") return;
+    const b = parseFloat(current);
+    const result = compute(prev, b, op);
+    if (!chain) historyEl.textContent = `${format(prev)} ${op} ${format(b)} =`;
+    current = format(result);
+    op = null;
+    prev = result;
+    fresh = true;
+    render();
+  };
+
+  const clearAll = () => {
+    current = "0"; prev = null; op = null; fresh = false;
+    historyEl.textContent = "";
+    render();
+  };
+
+  const backspace = () => {
+    if (fresh || current === "오류") return;
+    current = current.length > 1 && !(current.length === 2 && current[0] === "-")
+      ? current.slice(0, -1) : "0";
+    render();
+  };
+
+  document.querySelector(".keys").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.num !== undefined) inputNum(b.dataset.num);
+    else if (b.dataset.op) setOp(b.dataset.op);
+    else switch (b.dataset.act) {
+      case "clear": clearAll(); break;
+      case "dot": inputDot(); break;
+      case "equals": equals(); break;
+      case "sign":
+        if (current !== "0" && current !== "오류") {
+          current = current.startsWith("-") ? current.slice(1) : "-" + current;
+          render();
+        }
+        break;
+      case "percent":
+        if (current !== "오류") { current = format(parseFloat(current) / 100); render(); }
+        break;
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const k = e.key;
+    if (/^[0-9]$/.test(k)) inputNum(k);
+    else if (k === ".") inputDot();
+    else if (k === "+") setOp("+");
+    else if (k === "-") setOp("−");
+    else if (k === "*") setOp("×");
+    else if (k === "/") { e.preventDefault(); setOp("÷"); }
+    else if (k === "Enter" || k === "=") { e.preventDefault(); equals(); }
+    else if (k === "Backspace") backspace();
+    else if (k === "Escape" || k === "Delete") clearAll();
+  });
+</script>
+</body>
+</html>
